@@ -103,24 +103,61 @@ def optimize_gemini(python):
     write_output(reply)
 
 
-pi = """
-import time
+def stream_gpt(python):    
+    stream = openai.chat.completions.create(model=OPENAI_MODEL, messages=messages_for(python), stream=True)
+    reply = ""
+    for chunk in stream:
+        fragment = chunk.choices[0].delta.content or ""
+        reply += fragment
+        yield reply.replace('```cpp\n','').replace('```','')
+        
 
-def calculate(iterations, param1, param2):
-    result = 1.0
-    for i in range(1, iterations+1):
-        j = i * param1 - param2
-        result -= (1/j)
-        j = i * param1 + param2
-        result += (1/j)
-    return result
+def stream_claude(python):
+    result = claude.messages.stream(
+        model=CLAUDE_MODEL,
+        max_tokens=2000,
+        system=system_message,
+        messages=[{"role": "user", "content": user_prompt_for(python)}],
+    )
+    reply = ""
+    with result as stream:
+        for text in stream.text_stream:
+            reply += text
+            yield reply.replace('```cpp\n','').replace('```','')
+            
+            
+def stream_gemini(python):    
+    stream = gemini.chat.completions.create(model=GEMINI_MODEL, messages=messages_for(python), stream=True)
+    reply = ""
+    for chunk in stream:
+        fragment = chunk.choices[0].delta.content or ""
+        reply += fragment
+        yield reply.replace('```cpp\n','').replace('```','')
+            
+            
+def optimize(python, model):
+    if model=="GPT":
+        result = stream_gpt(python)
+    elif model=="Claude":
+        result = stream_claude(python)
+    elif model == "Gemini":
+        result= stream_gemini(python)
+    else:
+        raise ValueError("Unknown model")
+    for stream_so_far in result:
+        yield stream_so_far       
+        
+        
+# UI
+with gr.Blocks() as ui:
+    with gr.Row():
+        python = gr.Textbox(label="Python code:", lines=10)
+        cpp = gr.Textbox(label="C++ code:", lines=10)
+    with gr.Row():
+        model = gr.Dropdown(["Gemini","GPT", "Claude"], label="Select model", value="Gemini")
+        convert = gr.Button("Convert code")
 
-start_time = time.time()
-result = calculate(100_000_000, 4, 1) * 4
-end_time = time.time()
+    convert.click(optimize, inputs=[python, model], outputs=[cpp])
 
-print(f"Result: {result:.12f}")
-print(f"Execution Time: {(end_time - start_time):.6f} seconds")
-"""
+ui.launch(inbrowser=True)
 
-print(optimize_gemini(pi))
